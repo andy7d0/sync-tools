@@ -57,6 +57,12 @@ then
 	rsync_command -av --delete $dir/$wd/ $remote_host:$remote_path/$wd/
 fi
 ;;
+"push-init" )
+echo ~~ initial push ~~
+echo
+	rsync_command -av --delete $dir/.seats/$wd/ $remote_host:$remote_path/.seats/$wd/
+	rsync_command -av --delete $dir/$wd/ $remote_host:$remote_path/$wd/
+;;
 esac
 echo
 echo ~~ ok ~~
