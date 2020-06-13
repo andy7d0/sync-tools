@@ -1,0 +1,110 @@
+#!/bin/bash
+dir=$(pwd)
+while ! [ -f $dir/syncsrc.rc ]
+do
+	if [ -z $dir ] ; then echo ~~ config not found ~~ ; exit 1; fi
+	dir=$(dirname $dir)
+done
+
+wd=$(basename $dir)
+dir=$(dirname $dir)
+
+mkdir -p $dir/.seats/$wd
+mkdir -p $dir/.seats/.locks
+
+. $dir/$wd/syncsrc.rc
+echo folder is $dir
+echo subfolder is $wd
+echo remote host is $remote_host
+echo remote folder is $remote_path
+echo
+
+host=$(hostname)
+macine=$(cat /etc/machine-id | sha256sum | cut -c 1-64)
+seat=$host-$macine
+
+
+lock=$dir/.seats/.locks/dirwatch-$wd
+
+prev=$(cat $lock)
+
+exec 9>$lock
+if ! flock -n 9
+then
+ test -n $prev && echo replace $prev 
+ test -n $prev && kill $prev
+fi
+
+test "$1" = "stop" && exit
+
+flock 9
+
+join_arr() { local IFS=$'\n'; echo "$*"; }
+
+prepare_sync $remote_host
+
+inotifywait -q --timefmt '%Y-%m-%d%t%T' --format '%T %e %w%f' \
+-e modify -e attrib -e move -e move_self -e create -e delete -e delete_self \
+-m -r $dir/$wd > >(
+while read file
+do 
+	files=("$file")
+	while read -t 0.2 file2
+	do
+		files+=("$file2")
+	done
+	unset created
+	unset existing
+	declare -A created
+	declare -A existing
+	for i in "${files[@]}"
+	do
+		prs=( $i )
+		echo $i
+		dt=${prs[0]}
+		tm=${prs[1]}
+		op=${prs[2]}
+		ff=${prs[@]:3}
+		ff="${ff[*]}"
+		case "$op" in
+		"CREATE" )
+			created[$ff]=$op
+			;;
+		"MOVED_FROM" | "DELETE" )
+			if [[ -z "${created[$ff]}" ]]
+			then
+				#echo existing
+				existing[$ff]=$op
+			else
+				#echo temp
+				unset created[$ff]
+			fi
+			;;
+		* )
+			if [[ -z "${created[$ff]}" ]]
+			then
+				existing[$ff]=$op
+			else
+				created[$ff]=$op
+			fi
+			;;
+		esac
+		#echo $op $ff 
+	done
+	outfiles=( ${!created[@]} ${!existing[@]} )
+	outfiles=( ${outfiles[@]#$dir/$wd/} )
+	echo SYNC:
+	join_arr ${outfiles[@]} | \
+		instant_sync -av --delete-missing-args --files-from=- \
+			$dir/$wd/ $remote_host:$remote_path/$wd/
+
+	touch $dir/.seats/$wd/$seat
+	instant_sync -av $dir/.seats/$wd/ $remote_host:$remote_path/.seats/$wd/
+done
+) &
+echo $! > $lock
+echo we are $!
+wait $!
+
+stop_sync $remote_host
+
