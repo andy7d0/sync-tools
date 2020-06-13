@@ -1,0 +1,34 @@
+# plain rsync command
+# can be, for example
+# 	rsync
+# or
+#	rsync -e "ssh -i key_file"
+# or
+#	somthing else
+rsync_command() {
+	rsync "$@"
+}
+
+#path to ssh control file, usually default value good enought
+SSH_CTL=$dir/.seats/.locks/ssh-$wd
+
+#daemonized rsync/ssh stuff for instant sync on file change
+# 1) command to initialize ssh process
+prepare_sync(){
+	echo ssh -nNf -M -S "$SSH_CTL" $1
+	ssh -nNf -M -S "$SSH_CTL" $1
+}
+
+# 2) command to stop ssh process
+stop_sync() {
+	ssh -O exit -S="$SSH_CTL" $1
+}
+
+# 3) sync command, used perpared ssh connection
+instant_sync() {
+	rsync -e "ssh -S $SSH_CTL" "$@"
+}
+
+#path to remote folder
+remote_host=host
+remote_path=/var/www/html
