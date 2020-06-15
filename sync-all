@@ -31,8 +31,7 @@ case "$1" in
 "pull" )
 echo ~~ pull ~~
 echo
-rsync_command -utWxvd --delete --exclude /$seat \
-	$remote_host:$remote_path/.seats/$wd/ $dir/.seats/$wd/
+rsync_command -utWxvd $remote_host:$remote_path/.seats/$wd/ $dir/.seats/$wd/
 latest=$(ls -t $dir/.seats/$wd/*-* | head -1)
 if [ "$latest" != "$dir/.seats/$wd/$seat" ]
 then
@@ -41,26 +40,25 @@ then
 	echo
 	rsync_command -av --delete $remote_host:$remote_path/$wd/ $dir/$wd/
 else
-	echo ~~ files here are newer ~~
+	echo ~~ files here are newer, so here is the master host ~~
 fi
 ;;
 "push" )
 echo ~~ push ~~
 echo
 #push changes to remove site
-rsync_command -utWxvd --delete --exclude /$seat \
-	$remote_host:$remote_path/.seats/$wd/ $dir/.seats/$wd/
+rsync_command -utWxvd $remote_host:$remote_path/.seats/$wd/ $dir/.seats/$wd/
 latest=$(ls -t $dir/.seats/$wd/*-* | head -1)
 if [ "$latest" == "$dir/.seats/$wd/$seat" ]
 then
-	rsync_command -av --delete $dir/.seats/$wd/ $remote_host:$remote_path/.seats/$wd/
+	rsync_command -av $dir/.seats/$wd/ $remote_host:$remote_path/.seats/$wd/
 	rsync_command -av --delete $dir/$wd/ $remote_host:$remote_path/$wd/
 fi
 ;;
 "push-init" )
 echo ~~ initial push ~~
 echo
-	rsync_command -av --delete $dir/.seats/$wd/ $remote_host:$remote_path/.seats/$wd/
+	rsync_command -av $dir/.seats/$wd/ $remote_host:$remote_path/.seats/$wd/
 	rsync_command -av --delete $dir/$wd/ $remote_host:$remote_path/$wd/
 ;;
 esac

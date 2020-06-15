@@ -103,8 +103,16 @@ do
 done
 ) &
 echo $! > $lock
-echo we are $!
-wait $!
+inotify=$!
+echo we are $inotify
+
+
+trap ctrl_c INT
+function ctrl_c() {
+	kill $inotify
+}
+
+wait $inotify
 
 stop_sync $remote_host
 
