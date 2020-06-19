@@ -19,14 +19,34 @@ echo remote host is $remote_host
 echo remote folder is $remote_path
 echo
 
+prepare_sync() {
+	echo ssh -nN -M -S "$SSH_CTL" $1
+	ssh -nN -M -S "$SSH_CTL" -o ServerAliveInterval=10 -o ServerAliveCountMax=1 $1
+	#echo ssh daemon $!
+}
+
+stop_sync() {
+	echo ssh -O exit -S "$SSH_CTL" $1
+	ssh -O exit -S "$SSH_CTL" $1
+}
+
+join_arr() { local IFS=$'\n'; echo "$*"; }
+
+
 host=$(hostname)
 macine=$(cat /etc/machine-id | sha256sum | cut -c 1-64)
 seat=$host-$macine
 
+seats_dir="$dir/.seats/$wd"
+seat_file="$seats_dir/$seat"
 
-lock=$dir/.seats/.locks/dirwatch-$wd
+remote_seats_dir="$remote_path/.seats/$wd"
 
-prev=$(cat $lock)
+
+lockdir="$dir/.seats/.locks"
+lock="$lockdir/dirwatch-$wd"
+
+prev=$(cat "$lock")
 
 exec 9>$lock
 if ! flock -n 9
@@ -39,15 +59,101 @@ test "$1" = "stop" && exit
 
 flock 9
 
-join_arr() { local IFS=$'\n'; echo "$*"; }
+function ssh_tunnel() {
+	while true
+	do
+		echo pre connect
+		prepare_sync $remote_host
+		echo connection dropped, reconnect
+	done
+}
 
-prepare_sync $remote_host
+( ssh_tunnel ) &
+ssh_tunnel_id=$!
+echo ssh tunnel id is $ssh_tunnel_id
+
+sync_stamp() {
+	test -s "$1" && \
+	instant_sync -av --delete-missing-args --files-from="$1" \
+			"$dir/$wd/" "$remote_host:$remote_path/$wd/" \
+	&& : > "$1" \
+	&& instant_sync -av "$1" "$remote_host:$remote_seats_dir/${1#$seats_dir/}"
+}
+
+# make newindex and changed from index
+function fix_changes() {
+	# make new index
+	find "$dir/$wd" -type f -printf "%T@ %P\n" | sort > "$lockdir/newindex-$wd"
+		
+	# make diff
+	# deleted
+	comm -2 -3 \
+		"$lockdir/index-$wd" \
+		"$lockdir/newindex-$wd" \
+		>> "$lockdir/indexdiff-$wd"
+	#changed/created
+	comm -1 -3 \
+		"$lockdir/index-$wd" \
+		"$lockdir/newindex-$wd" \
+		>> "$lockdir/indexdiff-$wd"
+}
+
+function push_changed() {
+	# instruct monitor to record all changes when happen while making new index
+	# but do not send them instantly
+	truncate -s 0 "$lockdir/indexdiff-$wd"
+	touch "$lockdir/index-$wd"
+
+	fix_changes
+
+	#cat "$lockdir/indexdiff-$wd"
+	cut -d ' ' -f 2- "$lockdir/indexdiff-$wd" | sort | uniq >> "$seat_file"
+
+	sync_stamp "$seat_file" && \
+	mv "$lockdir/newindex-$wd" "$lockdir/index-$wd"
+	
+	rm "$lockdir/indexdiff-$wd"
+}
+
+function pull_changed() {
+	# instruct monitor do not record changes when happen while pulling
+
+	# download remote stamps
+	instant_sync -utWxvd \
+		"$remote_host:$remote_seats_dir/" "$seats_dir/"
+	latest=$(ls -t "$seats_dir"/*-* | head -1)
+
+	test "$latest" != "$seat_file" && \
+	flock "$seat_file" -c \
+	instant_sync -av --delete $remote_host:"$remote_path/$wd/" "$dir/$wd/"
+}
+
+function push_pull_sync() {
+	while true
+	do
+	# during push record all changes but not transfer them
+	push_changed
+	# during pull do not record changes!
+	pull_changed
+	
+	sleep $sync_timeout
+	done
+}
+
+( push_pull_sync ) &
+push_pull_id=$!
+echo push/pull id is $push_pull_id
+
+sleep 1
+
 
 inotifywait -q --timefmt '%Y-%m-%d%t%T' --format '%T %e %w%f' \
 -e modify -e attrib -e move -e move_self -e create -e delete -e delete_self \
 -m -r $dir/$wd > >(
 while read file
 do 
+  if flock -n "$seat_file" -c true
+  then
 	files=("$file")
 	while read -t 0.2 file2
 	do
@@ -91,18 +197,21 @@ do
 		esac
 		#echo $op $ff 
 	done
+	echo SYNC:
+
+	# calculate changes, remove create/delete pairs
 	outfiles=( ${!created[@]} ${!existing[@]} )
 	outfiles=( ${outfiles[@]#$dir/$wd/} )
-	echo SYNC:
-	join_arr ${outfiles[@]} | \
-		instant_sync -av --delete-missing-args --files-from=- \
-			$dir/$wd/ $remote_host:$remote_path/$wd/
 
-	touch $dir/.seats/$wd/$seat
-	instant_sync -av $dir/.seats/$wd/ $remote_host:$remote_path/.seats/$wd/
+	# record change flag
+	join_arr ${outfiles[@]} >> "$seat_file"
+
+	# push changed files if no global sync in progress
+	test ! -e "$lockdir/indexdiff-$wd" && sync_stamp "$seat_file"
+  fi
 done
 ) &
-echo $! > $lock
+echo $! > "$lock"
 inotify=$!
 echo we are $inotify
 
@@ -114,5 +223,6 @@ function ctrl_c() {
 
 wait $inotify
 
+kill $push_pull_id $ssh_tunnel_id
 stop_sync $remote_host
 

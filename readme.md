@@ -52,39 +52,10 @@ $ROOT_DIR/working_folder/syncsrc.rc
 usually, it's useful to have folder $ROOT_DIR/sync-tools
 with content of this repo
 
-# commands
+# command
 
-all commands should be called in working folder or it's subfolders
-they automatically climb up to folder contains syncsrc.rc and read settings there
-
-## push files to server
-
-```sh
-../sync-tools/sync-all push
-```
-
-this command push (rsync) content of working folder (and it's subfolders) to the server configured in syncsrc.rc
-sync executed in --delete and -a mode 
-files transfered only if the local change stamp is newer than the server one 
-
-## pull files from server
-
-```sh
-../sync-tools/sync-all pull
-```
-
-this command pull (rsync) content from the server to working folder 
-sync executed in --delete and -a mode 
-files transfered only if the servers change stamp is newer than the local one
-
-NOTE.
-push/pull processed can be permanently run
-stamp check prevents multidirectional flow
-i.e. changes tranfered from a last used mechine to server and to other machines
-when somebody start using another machines it change stamp updated and this computer becomes a master
-
-NOTE.
-multimaster mode DOES NOT WORK, only one master at any time permitted
+the command should be called in working folder or it's subfolders
+it automatically climbs up to folder contains syncsrc.rc and read settings
 
 ## watch changes and transfer them
 
@@ -93,8 +64,21 @@ multimaster mode DOES NOT WORK, only one master at any time permitted
 ```
 
 start watcher (inotify) process with prepared ssh tunnel 
-and transfer all changes to the server and (with sync-all pull) to other seats
+and transfer all changes to the server
+also periodically pull changes from remote server 
+if some changes made locally when no monitor exists
+next _dirwatch_ call transefers this changes
 
+NOTE.
+multimaster mode DOES NOT WORK, only one master at any given time permitted
+NOTE.
+but multiple dirwatcher can work on different machines at same time,
+a machine with latest changes becames master and others bacame slave
 
+## stop monitoring
+
+```sh
+../sync-tools/dirwatch stop
+```
 
 
