@@ -99,6 +99,8 @@ sync_stamp() {
 	# - add new files
 	# - remove deleted
 	# - change stamps
+	# maybe we should disable local push when monitoring is active
+	# but we should push at least once at startup
 }
 
 # make newindex and changed from index
@@ -176,33 +178,43 @@ function pull_changed() {
 function push_pull_sync() {
 	while true
 	do
+		sleep $sync_timeout
 	
-		# during push record all changes but not transfer them
+		# during push our monitor record all changes but not transfer them
 		push_changed
 		# during pull do not record changes!
 		pull_changed
-	
-		sleep $sync_timeout
-	
+		
 	done
 }
 
 exec 10>"$lockdir/monitor-$wd"
 
+
+echo -e "${Blue}wait for initial sync ${NC}"
+push_changed
+pull_changed
+echo -e "${Blue} initial sync done, start remote motitor ${NC}"
+
 ( push_pull_sync ) &
 push_pull_id=$!
 echo push/pull id is $push_pull_id
 
-sleep 1
-
+echo -e "${Blue} start local motitor ${NC}"
 
 inotifywait -q --timefmt '%Y-%m-%d%t%T' --format '%T %e %w%f' \
 -e modify -e attrib -e move -e move_self -e create -e delete -e delete_self \
 -m -r $dir/$wd > >(
 while read file
 do 
-  if flock 10
+  if flock -n 10
   then
+  	# we do NOT block on lock
+  	# so if pull lock is in place
+  	# monitor silently ignore changes
+  	# of course, this means that we can drop right changes
+  	# BUT if this happen there are two masters
+  	# and this mode is unsupported and can not be
 	files=("$file")
 	while read -t 0.2 file2
 	do
@@ -259,8 +271,6 @@ do
 	test ! -e "$lockdir/indexdiff-$wd" && \
 		echo " --- push monitored changes --- " && \
 		sync_stamp "$seat_file"
-	
-	flock -u 10
   fi
 done
 ) &
