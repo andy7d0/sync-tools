@@ -1,4 +1,7 @@
 #!/bin/bash
+__dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source ${__dir}/colors
+
 dir=$(pwd)
 while ! [ -f "$dir/syncsrc.rc" ]
 do
@@ -13,10 +16,10 @@ mkdir -p "$dir/.seats/$wd"
 mkdir -p "$dir/.seats/.locks"
 
 . "$dir/$wd/syncsrc.rc"
-echo folder is $dir
-echo subfolder is $wd
-echo remote host is $remote_host
-echo remote folder is $remote_path
+echo -e "folder is ${Cyan}$dir${NC}"
+echo -e "subfolder is ${Cyan}$wd${NC}"
+echo -e "remote host is ${Cyan}$remote_host${NC}"
+echo -e "remote folder is ${Cyan}$remote_path${NC}"
 echo
 
 SSH_CTL="$dir/.seats/.locks/ssh-$wd"
@@ -32,9 +35,6 @@ stop_sync() {
 }
 
 join_arr() { local IFS=$'\n'; echo "$*"; }
-
-__dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source ${__dir}/colors
 
 host=$(hostname)
 macine=$(cat /etc/machine-id | sha256sum | cut -c 1-64)
