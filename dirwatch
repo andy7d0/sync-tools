@@ -33,6 +33,8 @@ stop_sync() {
 
 join_arr() { local IFS=$'\n'; echo "$*"; }
 
+__dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source ${__dir}/colors
 
 host=$(hostname)
 macine=$(cat /etc/machine-id | sha256sum | cut -c 1-64)
@@ -52,8 +54,8 @@ prev=$(cat "$lock")
 exec 9>"$lock"
 if ! flock -n 9
 then
- test -n $prev && echo replace $prev 
- test -n $prev && kill $prev
+ test -n "$prev" && echo replace $prev 
+ test -n "$prev" && kill $prev
 fi
 
 test "$1" = "stop" && exit
@@ -81,12 +83,22 @@ sync_stamp() {
 	# - send stamp
 
 	test -s "$1" && \
-	echo "push" && \
-	instant_sync -av --delete-missing-args --files-from="$1" \
+	echo -e "${Blue}push:${Green}" && \
+	cat "$1" && \
+	echo -e "${NC}" && \
+	instant_sync -auv --delete-missing-args --files-from="$1" \
 			${excluded_from_local_to_remote[@]/#/--exclude=} \
 			"$dir/$wd/" "$remote_host:$remote_path/$wd/" \
 	&& : > "$1" \
-	&& instant_sync -av "$1" "$remote_host:$remote_seats_dir/${1#$seats_dir/}"
+	&& instant_sync -auxW "$1" "$remote_host:$remote_seats_dir/${1#$seats_dir/}"
+	
+	#TODO:
+	# later changes will be synced again
+	# becase they found as diff between index and newindex
+	# we can incrementally patch index with this changes:
+	# - add new files
+	# - remove deleted
+	# - change stamps
 }
 
 # make newindex and changed from index
@@ -110,6 +122,8 @@ function fix_changes() {
 function push_changed() {
 	# instruct monitor to record all changes when happen while making new index
 	# but do not send them instantly
+	echo ""
+	echo "---- full (index) local check ----"
 	truncate -s 0 "$lockdir/indexdiff-$wd"
 	touch "$lockdir/index-$wd"
 
@@ -127,23 +141,36 @@ function push_changed() {
 	
 	#unlock monitor sync
 	rm "$lockdir/indexdiff-$wd"
+
+	echo "---- full (index) local check done ----"
+	echo ""
 }
 
 function pull_changed() {
 
 	# download remote stamps
-	instant_sync -utWxvd "$remote_host:$remote_seats_dir/" "$seats_dir/"
+	echo ""
+	echo "---- check remote ----"
+	instant_sync -utWxd "$remote_host:$remote_seats_dir/" "$seats_dir/"
 	# find latest stamp
 	latest=$(ls -t "$seats_dir"/*-* | head -1)
 
 	#if remote is newer sync back
-	test "$latest" != "$seat_file" && \
-	( flock 10 && \
-		echo "pull" && \
-		instant_sync -av --delete \
+	if test "$latest" != "$seat_file"
+	then
+	( flock 10 
+		echo ""
+		echo -e "${Red}----- pull -----${$NC}"
+		instant_sync -auv --delete \
 			${excluded_from_remote_to_local[@]/#/--exclude=} \
 			"$remote_host:$remote_path/$wd/" "$dir/$wd/" \
+		echo "----- pulled -----"
+		echo ""
 	)
+	fi
+
+	echo "---- remote check done ----"
+	echo ""
 }
 
 function push_pull_sync() {
@@ -229,7 +256,9 @@ do
 	join_arr ${outfiles[@]} >> "$seat_file"
 
 	# push changed files if no global sync in progress
-	test ! -e "$lockdir/indexdiff-$wd" && sync_stamp "$seat_file"
+	test ! -e "$lockdir/indexdiff-$wd" && \
+		echo " --- push monitored changes --- " && \
+		sync_stamp "$seat_file"
 	
 	flock -u 10
   fi
@@ -249,4 +278,6 @@ wait $inotify
 
 kill $push_pull_id $ssh_tunnel_id
 stop_sync $remote_host
+
+echo "DONE"
 
