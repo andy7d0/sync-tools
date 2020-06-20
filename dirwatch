@@ -49,7 +49,7 @@ lock="$lockdir/dirwatch-$wd"
 
 prev=$(cat "$lock")
 
-exec 9>$lock
+exec 9>"$lock"
 if ! flock -n 9
 then
  test -n $prev && echo replace $prev 
@@ -81,7 +81,9 @@ sync_stamp() {
 	# - send stamp
 
 	test -s "$1" && \
+	echo "push" && \
 	instant_sync -av --delete-missing-args --files-from="$1" \
+			${excluded_from_local_to_remote[@]/#/--exclude=} \
 			"$dir/$wd/" "$remote_host:$remote_path/$wd/" \
 	&& : > "$1" \
 	&& instant_sync -av "$1" "$remote_host:$remote_seats_dir/${1#$seats_dir/}"
@@ -136,8 +138,12 @@ function pull_changed() {
 
 	#if remote is newer sync back
 	test "$latest" != "$seat_file" && \
-	flock "$seat_file" -c \
-		instant_sync -av --delete $remote_host:"$remote_path/$wd/" "$dir/$wd/"
+	( flock 10 && \
+		echo "pull" && \
+		instant_sync -av --delete \
+			${excluded_from_remote_to_local[@]/#/--exclude=} \
+			"$remote_host:$remote_path/$wd/" "$dir/$wd/" \
+	)
 }
 
 function push_pull_sync() {
@@ -154,6 +160,8 @@ function push_pull_sync() {
 	done
 }
 
+exec 10>"$lockdir/monitor-$wd"
+
 ( push_pull_sync ) &
 push_pull_id=$!
 echo push/pull id is $push_pull_id
@@ -166,7 +174,7 @@ inotifywait -q --timefmt '%Y-%m-%d%t%T' --format '%T %e %w%f' \
 -m -r $dir/$wd > >(
 while read file
 do 
-  if flock -n "$seat_file" -c true
+  if flock 10
   then
 	files=("$file")
 	while read -t 0.2 file2
@@ -222,6 +230,8 @@ do
 
 	# push changed files if no global sync in progress
 	test ! -e "$lockdir/indexdiff-$wd" && sync_stamp "$seat_file"
+	
+	flock -u 10
   fi
 done
 ) &
