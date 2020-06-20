@@ -1,28 +1,29 @@
 #!/bin/bash
 dir=$(pwd)
-while ! [ -f $dir/syncsrc.rc ]
+while ! [ -f "$dir/syncsrc.rc" ]
 do
-	if [ -z $dir ] ; then echo ~~ config not found ~~ ; exit 1; fi
-	dir=$(dirname $dir)
+	if [ -z "$dir" ] ; then echo ~~ config not found ~~ ; exit 1; fi
+	dir=$(dirname "$dir")
 done
 
-wd=$(basename $dir)
-dir=$(dirname $dir)
+wd=$(basename "$dir")
+dir=$(dirname "$dir")
 
-mkdir -p $dir/.seats/$wd
-mkdir -p $dir/.seats/.locks
+mkdir -p "$dir/.seats/$wd"
+mkdir -p "$dir/.seats/.locks"
 
-. $dir/$wd/syncsrc.rc
+. "$dir/$wd/syncsrc.rc"
 echo folder is $dir
 echo subfolder is $wd
 echo remote host is $remote_host
 echo remote folder is $remote_path
 echo
 
+SSH_CTL="$dir/.seats/.locks/ssh-$wd"
+
 prepare_sync() {
 	echo ssh -nN -M -S "$SSH_CTL" $1
-	ssh -nN -M -S "$SSH_CTL" -o ServerAliveInterval=10 -o ServerAliveCountMax=1 $1
-	#echo ssh daemon $!
+	ssh -nN -M -S "$SSH_CTL" -o ServerAliveInterval=10 -o ServerAliveCountMax=1 "$1"
 }
 
 stop_sync() {
@@ -62,9 +63,10 @@ flock 9
 function ssh_tunnel() {
 	while true
 	do
-		echo pre connect
-		prepare_sync $remote_host
-		echo connection dropped, reconnect
+		echo connect....
+		prepare_sync "$remote_host"
+		echo .....connection dropped, reconnect
+		sleep 1
 	done
 }
 
@@ -73,6 +75,11 @@ ssh_tunnel_id=$!
 echo ssh tunnel id is $ssh_tunnel_id
 
 sync_stamp() {
+	#if sync queue not empty
+	# - rsync with recorded changes
+	# - clear queue
+	# - send stamp
+
 	test -s "$1" && \
 	instant_sync -av --delete-missing-args --files-from="$1" \
 			"$dir/$wd/" "$remote_host:$remote_path/$wd/" \
@@ -86,13 +93,13 @@ function fix_changes() {
 	find "$dir/$wd" -type f -printf "%T@ %P\n" | sort > "$lockdir/newindex-$wd"
 		
 	# make diff
-	# deleted
-	comm -2 -3 \
-		"$lockdir/index-$wd" \
-		"$lockdir/newindex-$wd" \
-		>> "$lockdir/indexdiff-$wd"
-	#changed/created
-	comm -1 -3 \
+	# deleted recorded as first column
+	#	stamp space file-name with spaces
+	# create recorderd as second column
+	# 	tab stamp space file-name with spaces
+	# changed recordes twice
+	# once as deleted and once as created
+	comm -3 \
 		"$lockdir/index-$wd" \
 		"$lockdir/newindex-$wd" \
 		>> "$lockdir/indexdiff-$wd"
@@ -106,37 +113,44 @@ function push_changed() {
 
 	fix_changes
 
-	#cat "$lockdir/indexdiff-$wd"
+	# trim up to first space
 	cut -d ' ' -f 2- "$lockdir/indexdiff-$wd" | sort | uniq >> "$seat_file"
 
 	sync_stamp "$seat_file" && \
 	mv "$lockdir/newindex-$wd" "$lockdir/index-$wd"
 	
+	#if nothing to sync sync_stam returns false so newindex not renamed
+	# just remove 
+	test -e "$lockdir/newindex-$wd" && rm "$lockdir/newindex-$wd"
+	
+	#unlock monitor sync
 	rm "$lockdir/indexdiff-$wd"
 }
 
 function pull_changed() {
-	# instruct monitor do not record changes when happen while pulling
 
 	# download remote stamps
-	instant_sync -utWxvd \
-		"$remote_host:$remote_seats_dir/" "$seats_dir/"
+	instant_sync -utWxvd "$remote_host:$remote_seats_dir/" "$seats_dir/"
+	# find latest stamp
 	latest=$(ls -t "$seats_dir"/*-* | head -1)
 
+	#if remote is newer sync back
 	test "$latest" != "$seat_file" && \
 	flock "$seat_file" -c \
-	instant_sync -av --delete $remote_host:"$remote_path/$wd/" "$dir/$wd/"
+		instant_sync -av --delete $remote_host:"$remote_path/$wd/" "$dir/$wd/"
 }
 
 function push_pull_sync() {
 	while true
 	do
-	# during push record all changes but not transfer them
-	push_changed
-	# during pull do not record changes!
-	pull_changed
 	
-	sleep $sync_timeout
+		# during push record all changes but not transfer them
+		push_changed
+		# during pull do not record changes!
+		pull_changed
+	
+		sleep $sync_timeout
+	
 	done
 }
 
