@@ -16,11 +16,16 @@ mkdir -p "$dir/.seats/$wd"
 mkdir -p "$dir/.seats/.locks"
 
 . "$dir/$wd/syncsrc.rc"
+local_user=$(id -un)
+local_group=$(id -gn)
 echo -e "folder is ${Cyan}$dir${NC}"
 echo -e "subfolder is ${Cyan}$wd${NC}"
 echo -e "remote host is ${Cyan}$remote_host${NC}"
 echo -e "remote folder is ${Cyan}$remote_path${NC}"
+echo -e "local user is ${Cyan}$local_user:$local_group${NC}"
 echo
+
+ssh_user_group_map="${map_to_remote_user+--usermap=$local_user:$map_to_remote_user} ${map_to_remote_group+--groupmap=$local_group:$map_to_remote_group}"
 
 SSH_CTL="$dir/.seats/.locks/ssh-$wd"
 
