@@ -41,7 +41,9 @@ stop_sync() {
 
 join_arr() { local IFS=$'\n'; echo "$*"; }
 
+
 host=$(hostname)
+if [ "$1" = "test" ]; then host="$host+test"; shift; fi
 macine=$(cat /etc/machine-id | sha256sum | cut -c 1-64)
 seat=$host-$macine
 
