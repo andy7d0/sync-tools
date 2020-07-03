@@ -169,10 +169,11 @@ function pull_changed() {
 	then
 	( flock 10 
 		echo ""
-		echo -e "${Red}----- pull -----${$NC}"
+		echo -e "${Red}----- pull -----${NC}"
 		instant_sync -auv --delete \
 			${excluded_from_remote_to_local[@]/#/--exclude=} \
-			"$remote_host:$remote_path/$wd/" "$dir/$wd/" \
+			"$remote_host:$remote_path/$wd/" "$dir/$wd/"
+			
 		echo "----- pulled -----"
 		echo ""
 	)
