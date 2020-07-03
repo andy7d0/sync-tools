@@ -41,7 +41,9 @@ stop_sync() {
 
 join_arr() { local IFS=$'\n'; echo "$*"; }
 
+
 host=$(hostname)
+if [ "$1" = "test" ]; then host="$host+test"; shift; fi
 macine=$(cat /etc/machine-id | sha256sum | cut -c 1-64)
 seat=$host-$macine
 
@@ -167,10 +169,11 @@ function pull_changed() {
 	then
 	( flock 10 
 		echo ""
-		echo -e "${Red}----- pull -----${$NC}"
+		echo -e "${Red}----- pull -----${NC}"
 		instant_sync -auv --delete \
 			${excluded_from_remote_to_local[@]/#/--exclude=} \
-			"$remote_host:$remote_path/$wd/" "$dir/$wd/" \
+			"$remote_host:$remote_path/$wd/" "$dir/$wd/"
+			
 		echo "----- pulled -----"
 		echo ""
 	)
